@@ -1,6 +1,8 @@
 mod order;
+mod statistics;
 
 use crate::order::Order;
+use crate::statistics::Statistics;
 use clap::Parser;
 use std::collections::HashMap;
 use std::fs::File;
@@ -20,20 +22,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(Args::parse().file)?;
     let reader = BufReader::new(file);
 
-    let mut orders: Vec<Order> = Vec::new();
     let mut errors: HashMap<usize, String> = HashMap::new();
+    let mut statistics: Statistics = Statistics::new();
+
     for (i, line) in reader.lines().enumerate() {
         let line_content = line?;
 
         match Order::from_str(&line_content) {
-            Ok(order) => orders.push(order),
+            Ok(order) => statistics.accept(order),
             Err(error) => {
                 errors.insert(i + 1, format!("Error: {}", error));
             }
         };
     }
 
-    println!("{:?}", orders);
+    println!("{}", statistics);
     println!("{:?}", errors);
 
     Ok(())

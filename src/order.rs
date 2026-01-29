@@ -2,10 +2,10 @@ use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 pub struct Order {
-    id: u32,
-    customer: String,
-    amount: f64,
-    status: OrderStatus,
+    pub id: u32,
+    pub customer: String,
+    pub amount: f64,
+    pub status: OrderStatus,
 }
 
 impl Order {
@@ -38,7 +38,7 @@ impl Order {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum OrderStatus {
     Paid,
     Cancelled,
