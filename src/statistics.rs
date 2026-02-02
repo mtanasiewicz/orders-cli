@@ -1,4 +1,4 @@
-use crate::order::{Order, OrderStatus};
+use crate::order::{Order, OrderStatus, ParseError};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
@@ -7,6 +7,7 @@ pub struct Statistics {
     total_by_status: HashMap<OrderStatus, f64>,
     total_amount: f64,
     total_items: usize,
+    errors: HashMap<usize, String>,
 }
 
 impl Statistics {
@@ -16,6 +17,7 @@ impl Statistics {
             total_by_status: HashMap::new(),
             total_amount: 0.00,
             total_items: 0,
+            errors: HashMap::new(),
         }
     }
 
@@ -25,6 +27,10 @@ impl Statistics {
 
         self.total_amount += order.amount;
         self.total_items += 1;
+    }
+
+    pub fn add_error(&mut self, line_number: usize, error: ParseError) {
+        self.errors.insert(line_number, format!("Error: {}", error));
     }
 
     fn increment_items_by_status(&mut self, order: &Order) {
@@ -101,6 +107,13 @@ impl Display for Statistics {
         };
 
         writeln!(f, "\nPaid %: {:.2}%", paid_percent)?;
+        
+        if !self.errors.is_empty() { 
+            writeln!(f, "\nErrors:")?;
+            for (line_number, error) in &self.errors {
+                writeln!(f, "{}: {}", line_number, error)?;
+            }
+        }
 
         Ok(())
     }
