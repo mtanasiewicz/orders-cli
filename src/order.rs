@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use strum_macros::{Display, EnumIter};
 
 #[derive(Debug, Clone)]
 pub struct Order {
@@ -38,7 +39,7 @@ impl Order {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, EnumIter, Display)]
 pub enum OrderStatus {
     Paid,
     Cancelled,
