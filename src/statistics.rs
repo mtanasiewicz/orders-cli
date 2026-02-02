@@ -1,61 +1,70 @@
-use crate::order::{Order, OrderStatus, ParseError};
-use std::collections::HashMap;
+mod amount_by_status;
+mod amount_distribution;
+mod amount_summary;
+mod conversion_metrics;
+mod customer_risk_profile;
+mod top_orders;
+
+use crate::order::{Order, ParseError};
+use crate::statistics::amount_by_status::AmountsByStatus;
+use crate::statistics::amount_distribution::AmountDistribution;
+use crate::statistics::amount_summary::AmountSummary;
+use crate::statistics::conversion_metrics::ConversionMetrics;
+use crate::statistics::customer_risk_profile::CustomerRiskProfile;
+use crate::statistics::top_orders::TopOrders;
+use comfy_table::Table;
 use std::fmt::{Display, Formatter};
 
+trait Stat: Display {
+    fn accept(&mut self, order: &Order);
+}
+
 pub struct Statistics {
-    items_by_status: HashMap<OrderStatus, usize>,
-    total_by_status: HashMap<OrderStatus, f64>,
-    total_amount: f64,
-    total_items: usize,
-    errors: HashMap<usize, String>,
+    stats: Vec<Box<dyn Stat>>,
+    errors: Vec<LineError>,
+}
+
+struct LineError {
+    line_number: usize,
+    error: ParseError,
 }
 
 impl Statistics {
     pub fn new() -> Self {
-        Self {
-            items_by_status: HashMap::new(),
-            total_by_status: HashMap::new(),
-            total_amount: 0.00,
-            total_items: 0,
-            errors: HashMap::new(),
+        Statistics {
+            stats: vec![
+                Box::new(AmountsByStatus::new()),
+                Box::new(AmountDistribution::new()),
+                Box::new(AmountSummary::new()),
+                Box::new(ConversionMetrics::new()),
+                Box::new(TopOrders::new()),
+                Box::new(CustomerRiskProfile::new()),
+            ],
+            errors: Vec::new(),
         }
     }
 
     pub fn accept(&mut self, order: Order) {
-        self.increment_items_by_status(&order);
-        self.add_total_by_status(&order);
-
-        self.total_amount += order.amount;
-        self.total_items += 1;
+        for stat in &mut self.stats {
+            stat.accept(&order)
+        }
     }
 
     pub fn add_error(&mut self, line_number: usize, error: ParseError) {
-        self.errors.insert(line_number, format!("Error: {}", error));
+        self.errors.push(LineError { line_number, error });
     }
 
-    fn increment_items_by_status(&mut self, order: &Order) {
-        *self.items_by_status.entry(order.status).or_insert(0) += 1;
+    #[cfg(test)]
+    pub fn error_count(&self) -> usize {
+        self.errors.len()
     }
 
-    fn add_total_by_status(&mut self, order: &Order) {
-        *self.total_by_status.entry(order.status).or_insert(0.0) += order.amount;
-    }
-
-    pub fn count(&self, status: OrderStatus) -> usize {
-        self.items_by_status.get(&status).copied().unwrap_or(0)
-    }
-
-    pub fn total(&self, status: OrderStatus) -> f64 {
-        self.total_by_status.get(&status).copied().unwrap_or(0.0)
-    }
-
-    pub fn average(&self, status: OrderStatus) -> f64 {
-        let count = self.count(status);
-        if count > 0 {
-            self.total(status) / count as f64
-        } else {
-            0.0
-        }
+    #[cfg(test)]
+    pub fn errors(&self) -> Vec<(usize, &ParseError)> {
+        self.errors
+            .iter()
+            .map(|e| (e.line_number, &e.error))
+            .collect()
     }
 }
 
@@ -64,55 +73,14 @@ impl Display for Statistics {
         writeln!(f, "=== Orders statistics ===")?;
         writeln!(f)?;
 
-        writeln!(
-            f,
-            "{:<12} {:>8} {:>12} {:>10}",
-            "Status", "Count", "Total", "Avg"
-        )?;
-        writeln!(f, "-----------------------------------------")?;
-
-        for status in [
-            OrderStatus::Paid,
-            OrderStatus::Cancelled,
-            OrderStatus::Refunded,
-        ] {
-            writeln!(
-                f,
-                "{:<12} {:>8} {:>12.2} {:>10.2}",
-                format!("{:?}", status),
-                self.count(status),
-                self.total(status),
-                self.average(status),
-            )?;
+        for stat in &self.stats {
+            write!(f, "{}", stat)?;
         }
 
-        writeln!(f, "-----------------------------------------")?;
-
-        let avg_all = if self.total_items > 0 {
-            self.total_amount / self.total_items as f64
-        } else {
-            0.0
-        };
-
-        writeln!(
-            f,
-            "{:<12} {:>8} {:>12.2} {:>10.2}",
-            "ALL", self.total_items, self.total_amount, avg_all
-        )?;
-
-        let paid_percent = if self.total_amount > 0.0 {
-            self.total(OrderStatus::Paid) / self.total_amount * 100.0
-        } else {
-            0.0
-        };
-
-        writeln!(f, "\nPaid %: {:.2}%", paid_percent)?;
-
-        if !self.errors.is_empty() {
-            writeln!(f, "\nErrors:")?;
-            for (line_number, error) in &self.errors {
-                writeln!(f, "{}: {}", line_number, error)?;
-            }
+        let mut errors_table = Table::new();
+        errors_table.set_header(vec!["Line number", "Error"]);
+        for error in &self.errors {
+            errors_table.add_row(vec![error.line_number.to_string(), error.error.to_string()]);
         }
 
         Ok(())
@@ -122,113 +90,65 @@ impl Display for Statistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::order::OrderStatus;
 
-    fn paid(amount: f64) -> Order {
+    fn create_order(id: u32, customer: &str, amount: f64, status: OrderStatus) -> Order {
         Order {
-            id: 1,
-            customer: "John".into(),
+            id,
+            customer: customer.to_string(),
             amount,
-            status: OrderStatus::Paid,
-        }
-    }
-
-    fn cancelled(amount: f64) -> Order {
-        Order {
-            id: 1,
-            customer: "John".into(),
-            amount,
-            status: OrderStatus::Cancelled,
+            status,
         }
     }
 
     #[test]
-    fn empty_statistics() {
+    fn new_statistics_has_no_errors() {
         let stats = Statistics::new();
 
-        assert_eq!(0, stats.count(OrderStatus::Paid));
-        assert_eq!(0.0, stats.total(OrderStatus::Paid));
-        assert_eq!(0.0, stats.average(OrderStatus::Paid));
+        assert_eq!(stats.error_count(), 0);
     }
 
     #[test]
-    fn single_order_updates_stats() {
+    fn add_error_records_errors() {
         let mut stats = Statistics::new();
 
-        stats.accept(paid(10.0));
+        stats.add_error(1, ParseError::InvalidId);
+        stats.add_error(5, ParseError::InvalidPrice);
 
-        assert_eq!(1, stats.count(OrderStatus::Paid));
-        assert_eq!(10.0, stats.total(OrderStatus::Paid));
-        assert_eq!(10.0, stats.average(OrderStatus::Paid));
+        assert_eq!(stats.error_count(), 2);
+        let errors = stats.errors();
+        assert_eq!(errors[0], (1, &ParseError::InvalidId));
+        assert_eq!(errors[1], (5, &ParseError::InvalidPrice));
     }
 
     #[test]
-    fn multiple_orders_same_status() {
+    fn accept_does_not_increase_error_count() {
         let mut stats = Statistics::new();
 
-        stats.accept(paid(10.0));
-        stats.accept(paid(30.0));
+        stats.accept(create_order(1, "John", 10.0, OrderStatus::Paid));
+        stats.accept(create_order(2, "Jane", 20.0, OrderStatus::Cancelled));
 
-        assert_eq!(2, stats.count(OrderStatus::Paid));
-        assert_eq!(40.0, stats.total(OrderStatus::Paid));
-        assert_eq!(20.0, stats.average(OrderStatus::Paid));
+        assert_eq!(stats.error_count(), 0);
     }
 
     #[test]
-    fn multiple_statuses_are_independent() {
-        let mut stats = Statistics::new();
-
-        stats.accept(paid(10.0));
-        stats.accept(cancelled(5.0));
-
-        assert_eq!(1, stats.count(OrderStatus::Paid));
-        assert_eq!(1, stats.count(OrderStatus::Cancelled));
-
-        assert_eq!(10.0, stats.total(OrderStatus::Paid));
-        assert_eq!(5.0, stats.total(OrderStatus::Cancelled));
-    }
-
-    #[test]
-    fn average_returns_zero_when_no_items() {
+    fn display_includes_header() {
         let stats = Statistics::new();
-
-        assert_eq!(0.0, stats.average(OrderStatus::Paid));
-    }
-
-    #[test]
-    fn display_contains_expected_values() {
-        let mut stats = Statistics::new();
-
-        stats.accept(paid(10.0));
-        stats.accept(paid(30.0));
-        stats.accept(cancelled(20.0));
 
         let output = format!("{}", stats);
 
-        assert!(output.contains("Orders statistics"));
+        assert!(output.contains("=== Orders statistics ==="));
+    }
+
+    #[test]
+    fn display_includes_amounts_by_status_section() {
+        let mut stats = Statistics::new();
+        stats.accept(create_order(1, "John", 10.0, OrderStatus::Paid));
+
+        let output = format!("{}", stats);
+
+        assert!(output.contains("--- Amounts by status ---"));
         assert!(output.contains("Paid"));
-        assert!(output.contains("Cancelled"));
-
-        // count
-        assert!(output.contains("2"));
-        assert!(output.contains("1"));
-
-        // totals
-        assert!(output.contains("40.00"));
-        assert!(output.contains("20.00"));
-
-        // average
-        assert!(output.contains("20.00"));
-
-        // ALL
-        assert!(output.contains("60.00"));
-    }
-
-    #[test]
-    fn display_does_not_panic_on_empty_stats() {
-        let stats = Statistics::new();
-
-        let output = format!("{}", stats);
-
-        assert!(output.contains("0"));
+        assert!(output.contains("10.00"));
     }
 }
