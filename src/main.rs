@@ -1,12 +1,9 @@
 mod order;
+mod reader;
 mod statistics;
 
-use crate::order::Order;
-use crate::statistics::Statistics;
+use crate::reader::read_csv;
 use clap::Parser;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -19,25 +16,10 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::open(Args::parse().file)?;
-    let reader = BufReader::new(file);
+    let file_name = Args::parse().file;
 
-    let mut errors: HashMap<usize, String> = HashMap::new();
-    let mut statistics: Statistics = Statistics::new();
-
-    for (i, line) in reader.lines().enumerate() {
-        let line_content = line?;
-
-        match Order::from_str(&line_content) {
-            Ok(order) => statistics.accept(order),
-            Err(error) => {
-                errors.insert(i + 1, format!("Error: {}", error));
-            }
-        };
-    }
-
+    let statistics = read_csv(&file_name)?;
     println!("{}", statistics);
-    println!("{:?}", errors);
 
     Ok(())
 }
