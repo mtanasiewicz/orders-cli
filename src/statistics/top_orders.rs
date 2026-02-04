@@ -37,13 +37,15 @@ impl TopOrders {
     }
 
     fn insert_highest(&mut self, order: &Order) {
-        let summary = OrderSummary::from_order(order);
-
         if self.top_highest.len() < TOP_N {
+            let summary = OrderSummary::from_order(order);
+
             self.top_highest.push(summary);
             self.top_highest
                 .sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap());
         } else if order.amount > self.top_highest.last().unwrap().amount {
+            let summary = OrderSummary::from_order(order);
+
             self.top_highest.pop();
             self.top_highest.push(summary);
             self.top_highest
@@ -52,13 +54,15 @@ impl TopOrders {
     }
 
     fn insert_lowest(&mut self, order: &Order) {
-        let summary = OrderSummary::from_order(order);
-
         if self.top_lowest.len() < TOP_N {
+            let summary = OrderSummary::from_order(order);
+
             self.top_lowest.push(summary);
             self.top_lowest
                 .sort_by(|a, b| a.amount.partial_cmp(&b.amount).unwrap());
         } else if order.amount < self.top_lowest.last().unwrap().amount {
+            let summary = OrderSummary::from_order(order);
+
             self.top_lowest.pop();
             self.top_lowest.push(summary);
             self.top_lowest

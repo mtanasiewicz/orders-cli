@@ -105,13 +105,24 @@ impl CustomerRiskProfile {
 
 impl Stat for CustomerRiskProfile {
     fn accept(&mut self, order: &Order) {
-        let data = self.customers.entry(order.customer.clone()).or_default();
-        data.total_amount += order.amount;
+        if let Some(data) = self.customers.get_mut(&order.customer) {
+            data.total_amount += order.amount;
 
-        match order.status {
-            OrderStatus::Paid => data.paid_count += 1,
-            OrderStatus::Cancelled => data.cancelled_count += 1,
-            OrderStatus::Refunded => data.refunded_count += 1,
+            match order.status {
+                OrderStatus::Paid => data.paid_count += 1,
+                OrderStatus::Cancelled => data.cancelled_count += 1,
+                OrderStatus::Refunded => data.refunded_count += 1,
+            }
+        } else {
+            let mut new_data = CustomerData::default();
+            new_data.total_amount = order.amount;
+
+            match order.status {
+                OrderStatus::Paid => new_data.paid_count = 1,
+                OrderStatus::Cancelled => new_data.cancelled_count = 1,
+                OrderStatus::Refunded => new_data.refunded_count = 1,
+            }
+            self.customers.insert(order.customer.clone(), new_data);
         }
     }
 }
