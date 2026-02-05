@@ -15,12 +15,13 @@ use crate::statistics::top_orders::TopOrders;
 use comfy_table::Table;
 use std::fmt::{Display, Formatter};
 
-trait Stat: Display {
-    fn accept(&mut self, order: &Order);
-}
-
 pub struct Statistics {
-    stats: Vec<Box<dyn Stat>>,
+    amounts_by_status: AmountsByStatus,
+    amount_distribution: AmountDistribution,
+    amount_summary: AmountSummary,
+    conversion_metrics: ConversionMetrics,
+    top_orders: TopOrders,
+    customer_risk_profile: CustomerRiskProfile,
     errors: Vec<LineError>,
 }
 
@@ -32,22 +33,33 @@ struct LineError {
 impl Statistics {
     pub fn new() -> Self {
         Statistics {
-            stats: vec![
-                Box::new(AmountsByStatus::new()),
-                Box::new(AmountDistribution::new()),
-                Box::new(AmountSummary::new()),
-                Box::new(ConversionMetrics::new()),
-                Box::new(TopOrders::new()),
-                Box::new(CustomerRiskProfile::new()),
-            ],
+            amounts_by_status: AmountsByStatus::new(),
+            amount_distribution: AmountDistribution::new(),
+            amount_summary: AmountSummary::new(),
+            conversion_metrics: ConversionMetrics::new(),
+            top_orders: TopOrders::new(),
+            customer_risk_profile: CustomerRiskProfile::new(),
             errors: Vec::new(),
         }
     }
 
     pub fn accept(&mut self, order: Order) {
-        for stat in &mut self.stats {
-            stat.accept(&order)
-        }
+        self.amounts_by_status.accept(&order);
+        self.amount_distribution.accept(&order);
+        self.amount_summary.accept(&order);
+        self.conversion_metrics.accept(&order);
+        self.top_orders.accept(&order);
+        self.customer_risk_profile.accept(&order);
+    }
+
+    pub fn merge(&mut self, other: Statistics) {
+        self.amounts_by_status.merge(other.amounts_by_status);
+        self.amount_distribution.merge(other.amount_distribution);
+        self.amount_summary.merge(other.amount_summary);
+        self.conversion_metrics.merge(other.conversion_metrics);
+        self.top_orders.merge(other.top_orders);
+        self.customer_risk_profile.merge(other.customer_risk_profile);
+        self.errors.extend(other.errors);
     }
 
     pub fn add_error(&mut self, line_number: usize, error: ParseError) {
@@ -73,9 +85,12 @@ impl Display for Statistics {
         writeln!(f, "=== Orders statistics ===")?;
         writeln!(f)?;
 
-        for stat in &self.stats {
-            write!(f, "{}", stat)?;
-        }
+        write!(f, "{}", self.amounts_by_status)?;
+        write!(f, "{}", self.amount_distribution)?;
+        write!(f, "{}", self.amount_summary)?;
+        write!(f, "{}", self.conversion_metrics)?;
+        write!(f, "{}", self.top_orders)?;
+        write!(f, "{}", self.customer_risk_profile)?;
 
         let mut errors_table = Table::new();
         errors_table.set_header(vec!["Line number", "Error"]);
@@ -150,5 +165,32 @@ mod tests {
         assert!(output.contains("--- Amounts by status ---"));
         assert!(output.contains("Paid"));
         assert!(output.contains("10.00"));
+    }
+
+    #[test]
+    fn merge_combines_statistics() {
+        let mut stats1 = Statistics::new();
+        stats1.accept(create_order(1, "John", 10.0, OrderStatus::Paid));
+
+        let mut stats2 = Statistics::new();
+        stats2.accept(create_order(2, "Jane", 20.0, OrderStatus::Paid));
+
+        stats1.merge(stats2);
+
+        let output = format!("{}", stats1);
+        assert!(output.contains("30.00")); // total amount
+    }
+
+    #[test]
+    fn merge_combines_errors() {
+        let mut stats1 = Statistics::new();
+        stats1.add_error(1, ParseError::InvalidId);
+
+        let mut stats2 = Statistics::new();
+        stats2.add_error(5, ParseError::InvalidPrice);
+
+        stats1.merge(stats2);
+
+        assert_eq!(stats1.error_count(), 2);
     }
 }

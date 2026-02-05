@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
@@ -23,12 +22,12 @@ impl AmountsByStatus {
         }
     }
 
-    fn increment_items_by_status(&mut self, order: &Order) {
-        *self.items_by_status.entry(order.status).or_insert(0) += 1;
+    fn add_to_items_by_status(&mut self, status: OrderStatus, amount: usize) {
+        *self.items_by_status.entry(status).or_insert(0) += amount;
     }
 
-    fn add_total_by_status(&mut self, order: &Order) {
-        *self.total_by_status.entry(order.status).or_insert(0.0) += order.amount;
+    fn add_to_total_amount_by_status(&mut self, status: OrderStatus, total: f64) {
+        *self.total_by_status.entry(status).or_insert(0.0) += total;
     }
 
     fn count(&self, status: OrderStatus) -> usize {
@@ -64,12 +63,25 @@ impl AmountsByStatus {
             0.0
         }
     }
+
+    pub fn merge(&mut self, other: AmountsByStatus) {
+        self.total_items += other.total_items;
+        self.total_amount += other.total_amount;
+
+        for (status, items) in other.items_by_status {
+            self.add_to_items_by_status(status, items);
+        }
+
+        for (status, total) in other.total_by_status {
+            self.add_to_total_amount_by_status(status, total);
+        }
+    }
 }
 
-impl Stat for AmountsByStatus {
-    fn accept(&mut self, order: &Order) {
-        self.increment_items_by_status(&order);
-        self.add_total_by_status(&order);
+impl AmountsByStatus {
+    pub fn accept(&mut self, order: &Order) {
+        self.add_to_items_by_status(order.status, 1);
+        self.add_to_total_amount_by_status(order.status, order.amount);
 
         self.total_amount += order.amount;
         self.total_items += 1;
@@ -236,5 +248,49 @@ mod tests {
         let stats = AmountsByStatus::new();
 
         assert!((stats.average() - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_combines_totals() {
+        let mut stats1 = AmountsByStatus::new();
+        stats1.accept(&create_order(1, "John", 10.0, OrderStatus::Paid));
+        stats1.accept(&create_order(2, "Jane", 20.0, OrderStatus::Cancelled));
+
+        let mut stats2 = AmountsByStatus::new();
+        stats2.accept(&create_order(3, "Bob", 30.0, OrderStatus::Paid));
+        stats2.accept(&create_order(4, "Alice", 40.0, OrderStatus::Refunded));
+
+        stats1.merge(stats2);
+
+        assert_eq!(stats1.total_items, 4);
+        assert!((stats1.total_amount - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_combines_counts_by_status() {
+        let mut stats1 = AmountsByStatus::new();
+        stats1.accept(&create_order(1, "John", 10.0, OrderStatus::Paid));
+
+        let mut stats2 = AmountsByStatus::new();
+        stats2.accept(&create_order(2, "Jane", 20.0, OrderStatus::Paid));
+        stats2.accept(&create_order(3, "Bob", 30.0, OrderStatus::Cancelled));
+
+        stats1.merge(stats2);
+
+        assert_eq!(stats1.count(OrderStatus::Paid), 2);
+        assert_eq!(stats1.count(OrderStatus::Cancelled), 1);
+    }
+
+    #[test]
+    fn merge_combines_totals_by_status() {
+        let mut stats1 = AmountsByStatus::new();
+        stats1.accept(&create_order(1, "John", 10.0, OrderStatus::Paid));
+
+        let mut stats2 = AmountsByStatus::new();
+        stats2.accept(&create_order(2, "Jane", 20.0, OrderStatus::Paid));
+
+        stats1.merge(stats2);
+
+        assert!((stats1.total(OrderStatus::Paid) - 30.0).abs() < f64::EPSILON);
     }
 }

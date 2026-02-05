@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -64,8 +63,8 @@ impl ConversionMetrics {
     }
 }
 
-impl Stat for ConversionMetrics {
-    fn accept(&mut self, order: &Order) {
+impl ConversionMetrics {
+    pub fn accept(&mut self, order: &Order) {
         self.total_amount += order.amount;
 
         match order.status {
@@ -80,6 +79,14 @@ impl Stat for ConversionMetrics {
                 self.refunded_count += 1;
             }
         }
+    }
+
+    pub fn merge(&mut self, other: ConversionMetrics) {
+        self.paid_count += other.paid_count;
+        self.cancelled_count += other.cancelled_count;
+        self.refunded_count += other.refunded_count;
+        self.paid_amount += other.paid_amount;
+        self.total_amount += other.total_amount;
     }
 }
 
@@ -241,5 +248,37 @@ mod tests {
         let output = metrics.to_string();
 
         assert!(output.contains("--- Conversion Metrics ---"));
+    }
+
+    #[test]
+    fn merge_combines_counts() {
+        let mut metrics1 = ConversionMetrics::new();
+        metrics1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+        metrics1.accept(&create_order(2, "Jane", 100.0, OrderStatus::Cancelled));
+
+        let mut metrics2 = ConversionMetrics::new();
+        metrics2.accept(&create_order(3, "Bob", 100.0, OrderStatus::Paid));
+        metrics2.accept(&create_order(4, "Alice", 100.0, OrderStatus::Refunded));
+
+        metrics1.merge(metrics2);
+
+        assert_eq!(metrics1.paid_count, 2);
+        assert_eq!(metrics1.cancelled_count, 1);
+        assert_eq!(metrics1.refunded_count, 1);
+    }
+
+    #[test]
+    fn merge_combines_amounts() {
+        let mut metrics1 = ConversionMetrics::new();
+        metrics1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut metrics2 = ConversionMetrics::new();
+        metrics2.accept(&create_order(2, "Jane", 200.0, OrderStatus::Paid));
+        metrics2.accept(&create_order(3, "Bob", 50.0, OrderStatus::Cancelled));
+
+        metrics1.merge(metrics2);
+
+        assert!((metrics1.paid_amount - 300.0).abs() < f64::EPSILON);
+        assert!((metrics1.total_amount - 350.0).abs() < f64::EPSILON);
     }
 }

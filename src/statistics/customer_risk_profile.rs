@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
@@ -103,15 +102,39 @@ impl CustomerRiskProfile {
     }
 }
 
-impl Stat for CustomerRiskProfile {
-    fn accept(&mut self, order: &Order) {
-        let data = self.customers.entry(order.customer.clone()).or_default();
-        data.total_amount += order.amount;
+impl CustomerRiskProfile {
+    pub fn accept(&mut self, order: &Order) {
+        if let Some(data) = self.customers.get_mut(&order.customer) {
+            data.total_amount += order.amount;
 
-        match order.status {
-            OrderStatus::Paid => data.paid_count += 1,
-            OrderStatus::Cancelled => data.cancelled_count += 1,
-            OrderStatus::Refunded => data.refunded_count += 1,
+            match order.status {
+                OrderStatus::Paid => data.paid_count += 1,
+                OrderStatus::Cancelled => data.cancelled_count += 1,
+                OrderStatus::Refunded => data.refunded_count += 1,
+            }
+        } else {
+            let mut new_data = CustomerData::default();
+            new_data.total_amount = order.amount;
+
+            match order.status {
+                OrderStatus::Paid => new_data.paid_count = 1,
+                OrderStatus::Cancelled => new_data.cancelled_count = 1,
+                OrderStatus::Refunded => new_data.refunded_count = 1,
+            }
+            self.customers.insert(order.customer.clone(), new_data);
+        }
+    }
+
+    pub fn merge(&mut self, other: CustomerRiskProfile) {
+        for (customer, other_data) in other.customers {
+            if let Some(data) = self.customers.get_mut(&customer) {
+                data.paid_count += other_data.paid_count;
+                data.cancelled_count += other_data.cancelled_count;
+                data.refunded_count += other_data.refunded_count;
+                data.total_amount += other_data.total_amount;
+            } else {
+                self.customers.insert(customer, other_data);
+            }
         }
     }
 }
@@ -356,5 +379,35 @@ mod tests {
         assert!(output.contains("--- Customer Risk Profile ---"));
         assert!(output.contains("Top 5 Highest Risk Customers"));
         assert!(output.contains("High-Value Customers at Risk"));
+    }
+
+    #[test]
+    fn merge_combines_different_customers() {
+        let mut profile1 = CustomerRiskProfile::new();
+        profile1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut profile2 = CustomerRiskProfile::new();
+        profile2.accept(&create_order(2, "Jane", 200.0, OrderStatus::Paid));
+
+        profile1.merge(profile2);
+
+        assert!(profile1.customer_data("John").is_some());
+        assert!(profile1.customer_data("Jane").is_some());
+    }
+
+    #[test]
+    fn merge_combines_same_customer() {
+        let mut profile1 = CustomerRiskProfile::new();
+        profile1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut profile2 = CustomerRiskProfile::new();
+        profile2.accept(&create_order(2, "John", 200.0, OrderStatus::Cancelled));
+
+        profile1.merge(profile2);
+
+        let data = profile1.customer_data("John").unwrap();
+        assert_eq!(data.paid_count, 1);
+        assert_eq!(data.cancelled_count, 1);
+        assert!((data.total_amount - 300.0).abs() < f64::EPSILON);
     }
 }

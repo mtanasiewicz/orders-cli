@@ -1,5 +1,4 @@
 use crate::order::Order;
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -37,13 +36,15 @@ impl TopOrders {
     }
 
     fn insert_highest(&mut self, order: &Order) {
-        let summary = OrderSummary::from_order(order);
-
         if self.top_highest.len() < TOP_N {
+            let summary = OrderSummary::from_order(order);
+
             self.top_highest.push(summary);
             self.top_highest
                 .sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap());
         } else if order.amount > self.top_highest.last().unwrap().amount {
+            let summary = OrderSummary::from_order(order);
+
             self.top_highest.pop();
             self.top_highest.push(summary);
             self.top_highest
@@ -52,13 +53,15 @@ impl TopOrders {
     }
 
     fn insert_lowest(&mut self, order: &Order) {
-        let summary = OrderSummary::from_order(order);
-
         if self.top_lowest.len() < TOP_N {
+            let summary = OrderSummary::from_order(order);
+
             self.top_lowest.push(summary);
             self.top_lowest
                 .sort_by(|a, b| a.amount.partial_cmp(&b.amount).unwrap());
         } else if order.amount < self.top_lowest.last().unwrap().amount {
+            let summary = OrderSummary::from_order(order);
+
             self.top_lowest.pop();
             self.top_lowest.push(summary);
             self.top_lowest
@@ -77,10 +80,24 @@ impl TopOrders {
     }
 }
 
-impl Stat for TopOrders {
-    fn accept(&mut self, order: &Order) {
+impl TopOrders {
+    pub fn accept(&mut self, order: &Order) {
         self.insert_highest(order);
         self.insert_lowest(order);
+    }
+
+    pub fn merge(&mut self, other: TopOrders) {
+        // Merge highest: combine, sort descending, keep top N
+        self.top_highest.extend(other.top_highest);
+        self.top_highest
+            .sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap());
+        self.top_highest.truncate(TOP_N);
+
+        // Merge lowest: combine, sort ascending, keep top N
+        self.top_lowest.extend(other.top_lowest);
+        self.top_lowest
+            .sort_by(|a, b| a.amount.partial_cmp(&b.amount).unwrap());
+        self.top_lowest.truncate(TOP_N);
     }
 }
 
@@ -260,5 +277,51 @@ mod tests {
 
         assert!(output.contains("--- Top 5 Highest Orders ---"));
         assert!(output.contains("--- Top 5 Lowest Orders ---"));
+    }
+
+    #[test]
+    fn merge_combines_highest() {
+        let mut top1 = TopOrders::new();
+        top1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+        top1.accept(&create_order(2, "Jane", 200.0, OrderStatus::Paid));
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(3, "Bob", 300.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert_eq!(top1.highest().len(), 3);
+        assert!((top1.highest()[0].amount - 300.0).abs() < f64::EPSILON);
+        assert!((top1.highest()[1].amount - 200.0).abs() < f64::EPSILON);
+        assert!((top1.highest()[2].amount - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_keeps_top_n_highest() {
+        let mut top1 = TopOrders::new();
+        for i in 1..=5 {
+            top1.accept(&create_order(i, &format!("C{}", i), i as f64 * 10.0, OrderStatus::Paid));
+        }
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(6, "High", 1000.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert_eq!(top1.highest().len(), TOP_N);
+        assert!((top1.highest()[0].amount - 1000.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_combines_lowest() {
+        let mut top1 = TopOrders::new();
+        top1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(2, "Jane", 10.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert!((top1.lowest()[0].amount - 10.0).abs() < f64::EPSILON);
     }
 }
