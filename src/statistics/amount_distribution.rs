@@ -1,5 +1,4 @@
 use crate::order::Order;
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -72,8 +71,8 @@ impl AmountDistribution {
     }
 }
 
-impl Stat for AmountDistribution {
-    fn accept(&mut self, order: &Order) {
+impl AmountDistribution {
+    pub fn accept(&mut self, order: &Order) {
         let bucket = AmountBucket::from_amount(order.amount);
         self.counts[Self::bucket_index(bucket)] += 1;
         self.total_orders += 1;

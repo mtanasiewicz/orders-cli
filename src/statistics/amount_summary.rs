@@ -1,5 +1,4 @@
 use crate::order::Order;
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -74,8 +73,8 @@ impl AmountSummary {
     }
 }
 
-impl Stat for AmountSummary {
-    fn accept(&mut self, order: &Order) {
+impl AmountSummary {
+    pub fn accept(&mut self, order: &Order) {
         self.amounts.push(order.amount);
         self.sum += order.amount;
 

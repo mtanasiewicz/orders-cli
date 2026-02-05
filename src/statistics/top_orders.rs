@@ -1,5 +1,4 @@
 use crate::order::Order;
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -81,8 +80,8 @@ impl TopOrders {
     }
 }
 
-impl Stat for TopOrders {
-    fn accept(&mut self, order: &Order) {
+impl TopOrders {
+    pub fn accept(&mut self, order: &Order) {
         self.insert_highest(order);
         self.insert_lowest(order);
     }

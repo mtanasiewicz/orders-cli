@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{ContentArrangement, Table};
 use std::fmt::{Display, Formatter};
@@ -64,8 +63,8 @@ impl ConversionMetrics {
     }
 }
 
-impl Stat for ConversionMetrics {
-    fn accept(&mut self, order: &Order) {
+impl ConversionMetrics {
+    pub fn accept(&mut self, order: &Order) {
         self.total_amount += order.amount;
 
         match order.status {

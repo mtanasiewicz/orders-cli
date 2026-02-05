@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
@@ -103,8 +102,8 @@ impl CustomerRiskProfile {
     }
 }
 
-impl Stat for CustomerRiskProfile {
-    fn accept(&mut self, order: &Order) {
+impl CustomerRiskProfile {
+    pub fn accept(&mut self, order: &Order) {
         if let Some(data) = self.customers.get_mut(&order.customer) {
             data.total_amount += order.amount;
 

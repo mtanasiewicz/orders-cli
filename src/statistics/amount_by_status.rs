@@ -1,5 +1,4 @@
 use crate::order::{Order, OrderStatus};
-use crate::statistics::Stat;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
@@ -66,8 +65,8 @@ impl AmountsByStatus {
     }
 }
 
-impl Stat for AmountsByStatus {
-    fn accept(&mut self, order: &Order) {
+impl AmountsByStatus {
+    pub fn accept(&mut self, order: &Order) {
         self.increment_items_by_status(&order);
         self.add_total_by_status(&order);
 
