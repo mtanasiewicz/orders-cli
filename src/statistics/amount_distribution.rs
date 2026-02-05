@@ -77,6 +77,13 @@ impl AmountDistribution {
         self.counts[Self::bucket_index(bucket)] += 1;
         self.total_orders += 1;
     }
+
+    pub fn merge(&mut self, other: AmountDistribution) {
+        self.total_orders += other.total_orders;
+        for i in 0..4 {
+            self.counts[i] += other.counts[i];
+        }
+    }
 }
 
 impl Display for AmountDistribution {
@@ -199,5 +206,23 @@ mod tests {
         let output = dist.to_string();
 
         assert!(output.contains("--- Amount Distribution ---"));
+    }
+
+    #[test]
+    fn merge_combines_counts() {
+        let mut dist1 = AmountDistribution::new();
+        dist1.accept(&create_order(1, "John", 25.0, OrderStatus::Paid));
+        dist1.accept(&create_order(2, "Jane", 75.0, OrderStatus::Paid));
+
+        let mut dist2 = AmountDistribution::new();
+        dist2.accept(&create_order(3, "Bob", 25.0, OrderStatus::Paid));
+        dist2.accept(&create_order(4, "Alice", 600.0, OrderStatus::Paid));
+
+        dist1.merge(dist2);
+
+        assert_eq!(dist1.total_orders, 4);
+        assert_eq!(dist1.count(AmountBucket::Under50), 2);
+        assert_eq!(dist1.count(AmountBucket::From50To100), 1);
+        assert_eq!(dist1.count(AmountBucket::Over500), 1);
     }
 }

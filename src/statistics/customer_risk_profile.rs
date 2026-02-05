@@ -124,6 +124,19 @@ impl CustomerRiskProfile {
             self.customers.insert(order.customer.clone(), new_data);
         }
     }
+
+    pub fn merge(&mut self, other: CustomerRiskProfile) {
+        for (customer, other_data) in other.customers {
+            if let Some(data) = self.customers.get_mut(&customer) {
+                data.paid_count += other_data.paid_count;
+                data.cancelled_count += other_data.cancelled_count;
+                data.refunded_count += other_data.refunded_count;
+                data.total_amount += other_data.total_amount;
+            } else {
+                self.customers.insert(customer, other_data);
+            }
+        }
+    }
 }
 
 impl Display for CustomerRiskProfile {
@@ -366,5 +379,35 @@ mod tests {
         assert!(output.contains("--- Customer Risk Profile ---"));
         assert!(output.contains("Top 5 Highest Risk Customers"));
         assert!(output.contains("High-Value Customers at Risk"));
+    }
+
+    #[test]
+    fn merge_combines_different_customers() {
+        let mut profile1 = CustomerRiskProfile::new();
+        profile1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut profile2 = CustomerRiskProfile::new();
+        profile2.accept(&create_order(2, "Jane", 200.0, OrderStatus::Paid));
+
+        profile1.merge(profile2);
+
+        assert!(profile1.customer_data("John").is_some());
+        assert!(profile1.customer_data("Jane").is_some());
+    }
+
+    #[test]
+    fn merge_combines_same_customer() {
+        let mut profile1 = CustomerRiskProfile::new();
+        profile1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut profile2 = CustomerRiskProfile::new();
+        profile2.accept(&create_order(2, "John", 200.0, OrderStatus::Cancelled));
+
+        profile1.merge(profile2);
+
+        let data = profile1.customer_data("John").unwrap();
+        assert_eq!(data.paid_count, 1);
+        assert_eq!(data.cancelled_count, 1);
+        assert!((data.total_amount - 300.0).abs() < f64::EPSILON);
     }
 }

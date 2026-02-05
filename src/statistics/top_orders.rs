@@ -85,6 +85,20 @@ impl TopOrders {
         self.insert_highest(order);
         self.insert_lowest(order);
     }
+
+    pub fn merge(&mut self, other: TopOrders) {
+        // Merge highest: combine, sort descending, keep top N
+        self.top_highest.extend(other.top_highest);
+        self.top_highest
+            .sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap());
+        self.top_highest.truncate(TOP_N);
+
+        // Merge lowest: combine, sort ascending, keep top N
+        self.top_lowest.extend(other.top_lowest);
+        self.top_lowest
+            .sort_by(|a, b| a.amount.partial_cmp(&b.amount).unwrap());
+        self.top_lowest.truncate(TOP_N);
+    }
 }
 
 impl Display for TopOrders {
@@ -263,5 +277,51 @@ mod tests {
 
         assert!(output.contains("--- Top 5 Highest Orders ---"));
         assert!(output.contains("--- Top 5 Lowest Orders ---"));
+    }
+
+    #[test]
+    fn merge_combines_highest() {
+        let mut top1 = TopOrders::new();
+        top1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+        top1.accept(&create_order(2, "Jane", 200.0, OrderStatus::Paid));
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(3, "Bob", 300.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert_eq!(top1.highest().len(), 3);
+        assert!((top1.highest()[0].amount - 300.0).abs() < f64::EPSILON);
+        assert!((top1.highest()[1].amount - 200.0).abs() < f64::EPSILON);
+        assert!((top1.highest()[2].amount - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_keeps_top_n_highest() {
+        let mut top1 = TopOrders::new();
+        for i in 1..=5 {
+            top1.accept(&create_order(i, &format!("C{}", i), i as f64 * 10.0, OrderStatus::Paid));
+        }
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(6, "High", 1000.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert_eq!(top1.highest().len(), TOP_N);
+        assert!((top1.highest()[0].amount - 1000.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_combines_lowest() {
+        let mut top1 = TopOrders::new();
+        top1.accept(&create_order(1, "John", 100.0, OrderStatus::Paid));
+
+        let mut top2 = TopOrders::new();
+        top2.accept(&create_order(2, "Jane", 10.0, OrderStatus::Paid));
+
+        top1.merge(top2);
+
+        assert!((top1.lowest()[0].amount - 10.0).abs() < f64::EPSILON);
     }
 }

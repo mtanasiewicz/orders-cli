@@ -1,31 +1,87 @@
 use crate::order::Order;
 use crate::statistics::Statistics;
 use csv::ReaderBuilder;
+use memmap2::Mmap;
+use rayon::prelude::*;
 use std::fs::File;
+
+const CHUNK_SIZE: usize = 8192 * 1024; // 8MB chunks
 
 pub fn read_csv(file_path: &str) -> Result<Statistics, Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
+    let metadata = file.metadata()?;
+
+    if metadata.len() == 0 {
+        return Ok(Statistics::new());
+    }
+
+    let m_map = unsafe { Mmap::map(&file)? };
+    let data = &m_map[..];
+
+    let chunks = split_into_chunks(data, CHUNK_SIZE);
+
+    let statistics = chunks
+        .into_par_iter()
+        .map(|(chunk, line_offset)| process_chunk(chunk, line_offset))
+        .reduce(Statistics::new, |mut acc, stats| {
+            acc.merge(stats);
+            acc
+        });
+
+    Ok(statistics)
+}
+
+/// Splits data into chunks, respecting line boundaries.
+/// Returns tuples of (chunk_slice, starting_line_number).
+fn split_into_chunks(data: &[u8], target_size: usize) -> Vec<(&[u8], usize)> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut line_number = 1;
+
+    while start < data.len() {
+        let mut end = (start + target_size).min(data.len());
+
+        if end < data.len() {
+            while end < data.len() && data[end] != b'\n' {
+                end += 1;
+            }
+            if end < data.len() {
+                end += 1;
+            }
+        }
+
+        let chunk = &data[start..end];
+        chunks.push((chunk, line_number));
+
+        line_number += chunk.iter().filter(|&&b| b == b'\n').count();
+
+        start = end;
+    }
+
+    chunks
+}
+
+fn process_chunk(chunk: &[u8], line_offset: usize) -> Statistics {
+    let mut statistics = Statistics::new();
 
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
-        .buffer_capacity(1024 * 1024)
-        .from_reader(file);
-
-    let mut statistics = Statistics::new();
+        .from_reader(chunk);
 
     for (i, result) in reader.records().enumerate() {
+        let line_number = line_offset + i;
         match result {
             Ok(record) => match Order::from_csv_record(&record) {
                 Ok(order) => statistics.accept(order),
-                Err(err) => statistics.add_error(i + 1, err),
+                Err(err) => statistics.add_error(line_number, err),
             },
             Err(_) => {
-                statistics.add_error(i + 1, crate::order::ParseError::InvalidFormat);
+                statistics.add_error(line_number, crate::order::ParseError::InvalidFormat);
             }
         }
     }
 
-    Ok(statistics)
+    statistics
 }
 
 #[cfg(test)]
@@ -82,5 +138,26 @@ mod tests {
         assert_eq!(stats.error_count(), 0);
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn split_into_chunks_respects_line_boundaries() {
+        let data = b"line1\nline2\nline3\n";
+        let chunks = split_into_chunks(data, 8);
+
+        for (chunk, _) in &chunks {
+            assert!(chunk.is_empty() || chunk.ends_with(b"\n"));
+        }
+    }
+
+    #[test]
+    fn split_into_chunks_tracks_line_numbers() {
+        let data = b"line1\nline2\nline3\n";
+        let chunks = split_into_chunks(data, 6);
+
+        assert_eq!(chunks[0].1, 1);
+        if chunks.len() > 1 {
+            assert!(chunks[1].1 > 1);
+        }
     }
 }

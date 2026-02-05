@@ -88,6 +88,25 @@ impl AmountSummary {
             None => order.amount,
         });
     }
+
+    pub fn merge(&mut self, mut other: AmountSummary) {
+        self.amounts.append(&mut other.amounts);
+        self.sum += other.sum;
+
+        self.min = match (self.min, other.min) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+
+        self.max = match (self.max, other.max) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+    }
 }
 
 impl Display for AmountSummary {
@@ -232,5 +251,59 @@ mod tests {
         let output = summary.to_string();
 
         assert!(output.contains("--- Amount Summary ---"));
+    }
+
+    #[test]
+    fn merge_combines_amounts() {
+        let mut summary1 = AmountSummary::new();
+        summary1.accept(&create_order(1, "John", 10.0, OrderStatus::Paid));
+        summary1.accept(&create_order(2, "Jane", 20.0, OrderStatus::Paid));
+
+        let mut summary2 = AmountSummary::new();
+        summary2.accept(&create_order(3, "Bob", 30.0, OrderStatus::Paid));
+
+        summary1.merge(summary2);
+
+        assert_eq!(summary1.count(), 3);
+        assert!((summary1.mean() - 20.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_takes_min_of_mins() {
+        let mut summary1 = AmountSummary::new();
+        summary1.accept(&create_order(1, "John", 50.0, OrderStatus::Paid));
+
+        let mut summary2 = AmountSummary::new();
+        summary2.accept(&create_order(2, "Jane", 10.0, OrderStatus::Paid));
+
+        summary1.merge(summary2);
+
+        assert!((summary1.min() - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_takes_max_of_maxes() {
+        let mut summary1 = AmountSummary::new();
+        summary1.accept(&create_order(1, "John", 50.0, OrderStatus::Paid));
+
+        let mut summary2 = AmountSummary::new();
+        summary2.accept(&create_order(2, "Jane", 100.0, OrderStatus::Paid));
+
+        summary1.merge(summary2);
+
+        assert!((summary1.max() - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn merge_with_empty_preserves_values() {
+        let mut summary1 = AmountSummary::new();
+        summary1.accept(&create_order(1, "John", 50.0, OrderStatus::Paid));
+
+        let summary2 = AmountSummary::new();
+
+        summary1.merge(summary2);
+
+        assert!((summary1.min() - 50.0).abs() < f64::EPSILON);
+        assert!((summary1.max() - 50.0).abs() < f64::EPSILON);
     }
 }
